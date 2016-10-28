@@ -209,6 +209,8 @@ ci_result=exp(tab)[,-2]
 colnames(ci_result)=c("Estimates of exp(coef)","Lower CI of exp(coef)","Upper CI of exp(coef)")
 rownames(ci_result)=c("Intercept","unemployment rate","light condition1","light condition2","population","ns(year-month,2)1","ns(year-month,2)2","age","$(age-40)^+$")
 kable(ci_result, digits = 4, caption = "Summary of exp(coef) and its 95% confidence intervals for fixed effects")
+xt=xtable(ci_result,caption = paste0("Summary of exponential transformation of coefficients","\nand their 95% confidence intervals for fixed effects"),digits = 4,align = rep("c",ncol(ci_result)+1))
+
 
 
 ## random effects
