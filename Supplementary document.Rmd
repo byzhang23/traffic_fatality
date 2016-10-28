@@ -1,0 +1,405 @@
+---
+title: "Supplementary Document for Traffic Fatality Project"
+author: "Boyang Zhang"
+output: pdf_document
+---
+
+
+```{r library,echo=FALSE,warning=FALSE,message=FALSE}
+### GLMM (county)
+library(ggplot2)
+library(lmtest)
+library(splines)
+library(lme4)
+library(lattice)
+library(xtable)
+library(maps)
+library(dplyr)
+library(knitr)
+source("http://peterhaschke.com/Code/multiplot.R")
+crash=readRDS("./data/proc_data/crash_county.rds")
+```
+
+
+##Data acquisition
+
+
+As summarized in Data collection section in our report, we mainly obtained our raw data from three resources, namely Fatality Analysis Reporting System of the National Highway Traffic Safety Administration, U.S. Census Bureau and Local Area Unemployment Statistics. We saved our code for data downloading as “0-download.R”. Aside from post 2010 county-level population estimates, all our data can be automatically downloaded by sourcing  “0-download.R”. Our data was obtained on October 1st, 2015 and saved them in raw_data file under data directory.
+
+
+##Variable definitions and Missing value imputation
+
+
+In this section, we would mention about how we defined variables and imputed missing data for drunk driver variable. 
+
+
+__FIPS county code__
+
+The FIPS county code is a five-digit Federal Information Processing Standard (FIPS) code (FIPS 6-4) which uniquely identifies counties and county equivalents in the United States [2]. In our analysis, we used county FIPS code as one of the merging columns to combine all datasets. Here, we incorporated "county.fips" dataset in “maps” r package as a source to match FIPS county codes and their county names [3].The following table provides current county FIPS code for all 24 counties in Maryland.
+
+
+```{r county fips,echo=FALSE}
+county_FIPS=data.frame(unique(cbind(FIPS=as.integer(as.character(crash$geo_id)),County=crash$county)))
+kable(county_FIPS,caption =paste0("An overview of 24 counties in Maryland","\nand their FIPS code"))
+
+```
+
+__Accident files - light condition \& weather__
+
+
+For accident level files from 2005 to 2015, we first extracted common columns shared by all accident files and then concatenated them together. According to multi-year analytical user's manual provided by Fatality Analysis Reporting System (FARS) [4], we recategorized light condition and weather as follows. For light condition, we categorized night with no light as one level, dawn,dusk and night with light as second level and daylight as the third level. That is to say, the larger number of light condition, the brighter or clearer view that a driver has. As for weather, we simplified the original categories by defining clear or adverse weather. We defined all non-reported or unknown cases as missing values in both variables.
+
+
+After redefining categories, we summarized accident data by county and date (i.e. year and month). We extracted average light condition and calculated proportion of severe weather when accidents happened for a specific county in a given month. 
+
+
+All our preprocessing code for accident level files are saved in “1-acc.R” under R code directory.
+
+
+__Person files - age \& drunk drivers__
+
+
+For person level data, we first extracted common columns from 2005 to 2015 and concatenated them. Then we included only drivers’ information by specifying person type as 1 according to manual [4]. For drunk drivers variable, the data format changed in 2015 and therefore we multiplied alcohol test result before year 2015 by 10 to share the same scale. According to Maryland’s DUI laws,  drivers whose blood alcohol content is larger than 0.08 are defined as drunk driving. By applying the threshold of blood alcohol content at 0.08, we defined drunk driving based on alcohol test result (>0.08) and imputed the missingness of drunk driving action reported by the police. In this way, by summarizing data for each county for each month, we obtained average drivers’ age that are died due to fatal crashes and proportion of drunk drivers involved in fatal crashes. All preprocessing code for person level files are saved as “1-per.R” under R code directory.
+
+
+__Population__
+
+
+Population density is also a factor related to traffic-related fatalities. It is reasonable to guess that higher risk for fatal crashes among denser population counties. The data we collected are from two resources and for post 2010 population we could only download by hand. By matching county names with their FIPS code described above, we combine pre-2010 and post-2010 population estimates by county and year. In our analysis, we assumed that population estimates remained same throughout a year. The code for preprocessing population files are saved in “1-population.R” under R code directory.
+
+
+__Macroeconomic conditions__
+
+
+For macroeconomic conditions, we collected data for both median household income and unemployment rate. For median household income, we only obtained annual median household income for county level and therefore we chose to focus on unemployment rate instead. Similarly, by matching county names and their FIPS code, we combined unemployment rate from 2005 to 2015 based on county and date (i.e. year-month).
+
+
+## Exploratory analysis
+
+
+After defining variables, we performed a thorough exploratory analysis on each county. In report, we covered exploratory plots of Baltimore City. Here, we used Anne Arundel’s County and Prince George’s County as examples to illustrate results.
+
+Firstly, we explored traffic-related fatalities against age. In the following two plots, the dot represents data while blue lines represents a smoothing line using natural spline with 2 degrees of freedom. The shaded area are point-wise confidence interval. We noticed that the fatalities displayed different patterns before 40 and after 40 years old. Hence, we applied a linear spline for age at 40 years old.  
+
+```{r exploratory analysis-age,echo=FALSE,warning=FALSE,message=FALSE}
+baltimore=crash[which(crash$geo_id=="24510"),]
+montgomery=crash[which(crash$geo_id=="24031"),]
+anne=crash[which(crash$geo_id=="24003"),]
+prince=crash[which(crash$geo_id=="24033"),]
+
+
+## age
+age1=ggplot(anne,aes(x=age,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(method = 'glm',formula = y~ns(x,2),method.args = list(family = poisson))+ggtitle(paste0("Exploratory analysis of fatalities against age","\nin Anne Arundel County"))+xlab("Age")+ylab("Fatality")+theme_bw()
+age2=ggplot(prince,aes(x=age,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(method = 'glm',formula = y~ns(x,2),method.args = list(family = poisson))+ggtitle(paste0("Exploratory analysis of fatalities against age","\nin Prince George's County"))+xlab("Age")+ylab("Fatality")+theme_bw()
+
+multiplot(age1,age2)
+```
+
+Secondly, we plotted trend of fatalities in each county. In the following two plots, the red line represents true fatalities and orange lines are loess smoothing with shaded area indicating point-wise confidence interval. Although different counties displayed different seasonality, we decided to use natural spline of date(i.e. year-month) with two degrees of freedom to account for seasonal patterns. 
+
+
+```{r exploratory analysis-date,echo=FALSE,warning=FALSE,message=FALSE}
+## date
+date1=ggplot(anne,aes(x=ym,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_line(colour="red")+geom_smooth(colour="orange")+ggtitle(paste0("Exploratory analysis of trend of traffic fatalities","\nin Anne Arundel County"))+xlab("Date")+ylab("Fatality")+theme_bw()
+date2=ggplot(prince,aes(x=ym,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="orange")+geom_line(colour="red")+ggtitle(paste0("Exploratory analysis of trend of traffic fatalities","\nin Prince George's County"))+xlab("Date")+ylab("Fatality")+theme_bw()
+
+multiplot(date1,date2)
+
+```
+
+
+Thirdly, for our main focus, the unemployment rate for both cities reaches its peak around 2011 when the United States had entered a severe economic recession since 2008. The green line is a loess smoothing line drawn by default in ggplot and shaded area is confidence interval. 
+
+
+```{r exploratory analysis-unemployment rate,echo=FALSE,warning=FALSE,message=FALSE}
+## unemp_rate
+unemp1=ggplot(anne,aes(x=ym,y=unemp_rate))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="green")+ggtitle(paste0("Exploratory analysis of trend of unemployment rate","\nin Anne Arundel County"))+xlab("Date")+ylab("Unemployment%")+theme_bw()
+unemp2=ggplot(prince,aes(x=ym,y=unemp_rate))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="green")+ggtitle(paste0("Exploratory analysis of trend of unemployment rate","\nin Prince George's County"))+xlab("Date")+ylab("Unemployment%")+theme_bw()
+
+multiplot(unemp1,unemp2)
+
+```
+
+
+Furthermore, as we see from the exploratory plots of light conditions, we noticed that most of the fatal crashes happened when lights are obscure (i.e. during dawn, dusk or night with lights on).
+
+
+```{r exploratory analysis-light condition,echo=FALSE,warning=FALSE,message=FALSE}
+## light conditons
+light1=ggplot(anne,aes(x=lgt_cond,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against light condition","\nin Anne Arundel County"))+xlab("Light condition")+ylab("Fatality")+theme_bw()
+
+light2=ggplot(prince,aes(x=lgt_cond,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against light condition","\nin Prince George's County"))+xlab("Light condition")+ylab("Fatality")+theme_bw()
+
+multiplot(light1,light2)
+```
+
+
+Lastly, we plotted fatalities against weather condition. The purple lines are a loess smoothing line and the shaded area is point-wise confidence interval. We noticed that most fatal accidents happened during clear weather rather than severe weather.
+
+
+```{r exploratory analysis-weather,echo=FALSE,warning=FALSE,message=FALSE}
+## severe weather proportion
+weather1=ggplot(anne,aes(x=weather,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against proportion of severe weather","\nin Anne Arundel County"))+xlab("Severe weather proportion")+ylab("Fatality")+theme_bw()
+
+weather2=ggplot(prince,aes(x=weather,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against proportion of severe weather","\nin Prince George's County"))+xlab("Severe weather proportion")+ylab("Fatality")+theme_bw()
+
+multiplot(weather1,weather2)
+```
+
+
+
+
+__Variable Selection__
+
+
+In this section, we will discuss how to include variables in details. <code>lme4</code> package displays the Wald Z-statistics for each parameter in the model summary. They are convenient to compute but based on asymptotic approximations, assuming both that (1) the sampling distributions of the parameters are multivariate normal and that (2) the sampling distribution of the log-likelihood is (proportional to) $\chi^2$ [1]. Based on some warning message from model, we decided to rescale the variables to obtain identifiable model.
+ 
+
+```{r rescale variables,echo=FALSE}
+### rescale variables
+crash$age_sp1=with(crash,ifelse(age>40,age-40,0))
+crash$month=as.factor(crash$month)
+crash$population=scale(crash$population)
+crash$age=scale(crash$age)
+crash$age_sp1=scale(crash$age_sp1)
+
+crash=crash[complete.cases(crash),]
+
+### training vs. test set
+set.seed(100)
+train_id =sample(1:nrow(crash),0.5*nrow(crash)) #50% training dataset
+train=crash[train_id,]
+train=train[complete.cases(train),]
+test=crash[-train_id,]
+test=test[complete.cases(test),]
+```
+
+
+```{r test random effects,echo=FALSE,warning=FALSE,message=FALSE}
+### model fitting(GLMM)
+l000=glmer(fatals~unemp_rate+(1+unemp_rate|county),data=train,family = poisson)
+l0=glmer(fatals~unemp_rate+(1|county),data=train,family = poisson)
+l00=glmer(fatals~1+(1|county),data=train,family = poisson)
+q00=anova(l000,l0)$`Pr(>Chisq)`[2] #random effect: unemp_rate
+
+```
+
+To test effects, we used likelihood ratio test to see whether it's necessary to include terms such as random slope of unemployment within county with correlated intercept. Since p-value for random slope for unemployment rate is P=`r round(q00,3)`, we did not include random slope for unemployment rate in our analysis.
+
+
+In order to obtain unbiased estimates of coefficients and standard errors, we divided dataset into training set (50\%) and test set (50\%). As for testing parameters in GLMM, we chose to perform likelihood ratio test on each potential main effects as well as interaction terms and included them if they're statistically significant on training set. Then we obtained unbiased estimates of coefficients and its standard deviation on test set reported in our report.
+
+
+```{r test parameters,echo=FALSE,warning=FALSE,message=FALSE}
+l1=glmer(fatals~unemp_rate+lgt_cond+(1|county),data=train,family = poisson)
+q1=anova(l0,l1)$`Pr(>Chisq)`[2] #lgt_cond
+l2=glmer(fatals~unemp_rate+lgt_cond+weather+(1|county),data=train,family = poisson)
+q2=anova(l1,l2)$`Pr(>Chisq)`[2] #weather(not significant)
+l3=glmer(fatals~unemp_rate+lgt_cond+drunk_prop+(1|county),data=train,family = poisson)
+q3=anova(l1,l3)$`Pr(>Chisq)`[2] #drunk_prop(not significant)
+l4=glmer(fatals~unemp_rate+lgt_cond+ns(ym,2)+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q4=anova(l1,l4)$`Pr(>Chisq)`[2] #ns(ym,10)
+l5=glmer(fatals~unemp_rate+lgt_cond+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q5=anova(l4,l5)$`Pr(>Chisq)`[2] #age+age_sp1
+l6=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q6=anova(l5,l6)$`Pr(>Chisq)`[2] #population
+
+``` 
+ 
+ 
+Firstly, we observed that light conditions (P=$`r signif(q1, digits = 3)`$),age (P=$`r signif(q5, digits = 3)`$) and county-level population (P=$`r signif(q6, digits = 3)`$) are statistically significant while weather (P=`r round(q2,3)`) and drunk proportion (P=`r round(q3,3)`)  are not statistically significant. Here, since we notice seasonal pattern in exploratory analysis, we need to include a natural spline of calendar time with two degrees of freedom to account for seasonality based on our prior knowledge. Therefore, we included age, light conditions, calendar time and county-level population in our model.
+
+
+```{r test interactions,echo=FALSE,warning=FALSE,message=FALSE}
+l7=glmer(fatals~unemp_rate*lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q7=anova(l6,l7)$`Pr(>Chisq)`[2] #unemp_rate*lgt_cond(not significant)
+l8=glmer(fatals~unemp_rate+lgt_cond*population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q8=anova(l6,l8)$`Pr(>Chisq)`[2] #population*lgt_cond(not significant)
+l9=glmer(fatals~unemp_rate+lgt_cond+population*ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q9=anova(l6,l9)$`Pr(>Chisq)`[2] #population*ns(ym,2)(not significant)
+l10=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+lgt_cond:weather+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q10=anova(l6,l10)$`Pr(>Chisq)`[2] #lgt_cond * weather(not significant)
+l11=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+(age+age_sp1)*lgt_cond+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q11=anova(l6,l11)$`Pr(>Chisq)`[2] #lgt_cond * age(not significant)
+l12=glmer(fatals~unemp_rate*(age+age_sp1)+lgt_cond+population+ns(ym,2)+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q12=anova(l6,l12)$`Pr(>Chisq)`[2] #unemp_rate * age(not significant)
+```
+ 
+ 
+Secondly, we testify significance of interaction terms. The interactions between unemployment rate and light condition (P=`r round(q7,3)`), population and light condition (P=`r round(q8,3)`), population and calendar time (P=`r round(q9,3)`), light condition and weather (P=`r round(q10,3)`) , light condition and age (P=`r round(q11,3)`) and unemployment rate and age (P=`r round(q12,3)`)  are not statistically significant and therefore we did not include them in our model.
+
+
+##Model evaluation
+
+
+In this section, we will check overdispersion for our model, calculate an analogue of a coefficient of determination ($R^2$) and include summary results for both fixed effects and radom effects. 
+
+
+__Model__
+
+
+Let $\mu_{i}$ be the average traffic-related fatalities for $i$ th county ($i$=1,2,$\cdots$, 24). Our final model is:
+\begin{align*}
+\text{log}\mu_{i} &= (\beta_0+ \gamma_i) + \beta_1 unemprate + \beta_2 lgtcond  + \beta_3 population  + \beta_4 ns(ym,2) + \beta_5 age + \beta_6 (age-40)^+
+\end{align*}
+Here, $\beta_0$ is fixed intercept and $\beta_1 \cdots, \beta_6$ are fixed effects for unemployment rate, light condition, population, calendar time and age with its additional linear spline term respectively. $\gamma_i$ represents additive random effect for county.
+
+
+__Fixed effects__
+
+
+The following table shows the estimated coefficients for fixed effects and their 95\% confidence interval based on asymptotic approximation.
+
+
+```{r CI for l6,echo=FALSE}
+
+glmm.fit=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+test$fitted=predict(glmm.fit,newdata =test,type = "response")
+
+    
+se <- sqrt(diag(vcov(glmm.fit)))
+tab = cbind(est = fixef(glmm.fit), se,lower = fixef(glmm.fit) - 1.96 * se, upper = fixef(glmm.fit) + 1.96 * se)
+colnames(tab)=c("Estimates of coefficients","Standard Error","Lower CI","Upper CI")
+rownames(tab)=c("Intercept","unemployment rate","light condition1","light condition2","population","ns(year-month,2)1","ns(year-month,2)2","age","$(age-40)^+$")
+kable(tab, digits = 4, caption = "Summary of coefficients' estimates and its 95% confidence intervals for fixed effects")
+```
+
+
+In order to interpret results more clearly, we performed an exponential transformation on the estimated coefficients and the confidence intervals as shown in the table 3. 
+
+
+```{r exp(coef) for l6,echo=FALSE}
+ci_result=exp(tab)[,-2]
+colnames(ci_result)=c("Estimates of exp(coef)","Lower CI of exp(coef)","Upper CI of exp(coef)")
+rownames(ci_result)=c("Intercept","unemployment rate","light condition1","light condition2","population","ns(year-month,2)1","ns(year-month,2)2","age","$(age-40)^+$")
+kable(ci_result, digits = 4, caption = "Summary of exp(coef) and its 95% confidence intervals for fixed effects")
+```
+
+
+At same level of light condition, population size, age and date (i.e. year-month), the expected traffic-related fatalities with 1 percent increase in unemployment rate is `r round(ci_result[2,1],4)` times (95\%CI: (`r round(ci_result[2,2],4)`, `r round(ci_result[2,3],4)`)) than that with original unemployment rate. In other words, after controlling for age, population size, light condition and seasonality, the expected traffic-related fatalities decreases `r 100*(1-round(ci_result[2,1],4))` \% (95\%CI: (`r 100*(1-round(ci_result[2,3],4))` \%,`r 100*(1-round(ci_result[2,2],4))`\%)) with 1 percent increase in unemployment rate. For drivers who are younger than 40 years old, the expected counts of traffic fatalities increases `r 100*(round(ci_result[8,1],4)-1)`\%  (95\%CI: (`r 100*(round(ci_result[8,2],4)-1)`\%, `r 100*(round(ci_result[8,3],4)-1)`\%)) with 1 unit increase in age. Similarly, for drivers that are older than 40 years old, 1 unit increases in age is associated with additional `r 100*(round(ci_result[8,1],4)-1)` \% decreses (95\%CI: (`r 100*(round(ci_result[8,3],4)-1)` \%,`r 100*(round(ci_result[8,2],4)-1)`\%)) in expected traffic fatalities.
+
+
+
+__Random effects__
+
+
+
+For random intercept at county level, we plotted estimated random intercepts and their confidence interval for all 24 counties in the above figure. Prince George's County has the largest radom county intercept while Montogomery County has the smallest value. This plot reveals difference across random intercept at county level and therefore proved necessity to include the random county effects.
+
+
+```{r plot random effect,echo=FALSE,warning=FALSE,message=FALSE}
+rr=ranef(glmm.fit,condVar=TRUE)
+dotplot(rr,lattice.options=list(layout=c(1,2)))
+```
+
+
+If we also included random slope for unemployment rate, we plotted the estimated random effects and their confidence interval and discovered that there is no such big difference across counties for random slope of unemployment rate at county level. Thus, it is reasonable not to include random slope at county level.
+
+
+```{r plot random effect with unemployment rate, echo=FALSE,warning=FALSE,message=FALSE}
+temp=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+(1+unemp_rate|county),data=test,family = poisson)
+rr_temp=ranef(temp,condVar=TRUE)
+dotplot(rr_temp,lattice.options=list(layout=c(1,2)))
+```
+
+
+__Overdispersion__
+
+
+```{r test overdispersion,echo=FALSE}
+overdisp_fun <- function(model) {
+  ## number of variance parameters in 
+  ##   an n-by-n variance-covariance matrix
+  vpars <- function(m) {
+    nrow(m)*(nrow(m)+1)/2
+  }
+  model.df <- sum(sapply(VarCorr(model),vpars))+length(fixef(model))
+  rdf <- nrow(model.frame(model))-model.df
+  rp <- residuals(model,type="pearson")
+  Pearson.chisq <- sum(rp^2)
+  prat <- Pearson.chisq/rdf
+  pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+  c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
+set.seed(123)
+
+overdisp_p=overdisp_fun(glmm.fit)
+```
+
+
+Using methodology and code provided in the FAQ list for the r-sig-mixed-models mailing list [1], our model did not have overdispersion problem. The method attempted to count every variance or covariance parameter as one degree of freedom and calculated p-value based on approximate chi-squared distribution. But it may not be an accurate result for overdispersion testing.
+
+
+__R-squared__
+
+
+```{r rsquared,echo=FALSE}
+r2.corr.mer <- function(m) {
+   lmfit <-  lm(model.response(model.frame(m)) ~ fitted(m))
+   summary(lmfit)$r.squared
+}
+
+
+r2=r2.corr.mer(glmm.fit)
+```
+
+
+Since it is another challenging question to get an analogue of $R^2$ or another simple goodness-of-fit metric for LMMs or GLMM, various quantification methods are proposed online [1]. Among those, we decided to use code provided by Jarrett Byrnes as one way to calculate coefficient of determination and $R^2$ for our model is `r round(r2,3)`.
+
+
+
+__Fitness of model__
+
+
+In report, we included results for baltimore city to illustrate fitness of our model. Here, we provided additional counties, namely Anne Arundel's County and Prince George's County, to illustrate the result. We fitted our model on test set (another 50\%) and obtained fitted values. In the following figure, we plotted observed traffic fatalities and fitted values together to check fitness of our model. The orange solid line represents observed traffic fatalities in either counties and the blue dashed line represents the fitted traffic fatalities. As we could observe, our model captures the major seasonal trend and predict a majority of fatalities quite good but not with extreme cases. 
+
+
+```{r model fitness, echo=FALSE,message=FALSE,warning=FALSE}
+### draw fitted value vs. true fatality in anne and prince
+anne_crash=test[which(test$geo_id=="24003"),]
+prince_crash=test[which(test$geo_id=="24033"),]
+range=range(c(anne_crash$fatals,prince_crash$fatals))
+
+
+op=par(mfrow=c(2,1),mai=c(.6, .6, 0.5, .1),oma=c(0,0.1,1,0.1))
+plot(anne_crash$ym,anne_crash$fatals,lwd=2,col="orange",type="l",xlab="",ylab="",main=paste0("Observed value vs. Fitted values of traffic fatalities","\nin Anne Arundel County"),ylim=range)
+lines(anne_crash$ym,anne_crash$fitted,lwd=2,lty=2,col="blue")
+# lines(anne_crash$ym,anne_crash$lower,lwd=2,lty=3,col="lightblue")
+# lines(anne_crash$ym,anne_crash$upper,lwd=2,lty=3,col="lightblue")
+title(xlab="Date",line=1.9)
+title(ylab="Fatality",line=1.9)
+legend("topright",legend=c("Observed","Fitted"),lty=1:2,col=c("orange","blue"), lwd=2, horiz = TRUE,bty="n")
+
+
+
+plot(prince_crash$ym,prince_crash$fatals,lwd=2,col="orange",type="l",xlab="",ylab="",main=paste0("Observed value vs. Fitted values of traffic fatalities","\nin Prince George's County"),ylim=range)
+lines(prince_crash$ym,prince_crash$fitted,lwd=2,lty=2,col="blue")
+# lines(prince_crash$ym,prince_crash$lower,lwd=2,lty=3,col="lightblue")
+# lines(prince_crash$ym,prince_crash$upper,lwd=2,lty=3,col="lightblue")
+title(xlab="Date",line=1.9)
+title(ylab="Fatality",line=1.9)
+#title("True fatalities vs. fitted values of anne City and prince County",outer = T)
+legend("topright",legend=c("Observed","Fitted"),lty=1:2,col=c("orange","blue"), lwd=2, horiz = TRUE,bty="n")
+
+
+```
+
+
+All statistical analysis we mentioned above could reproduce in "final code.rmd" file.
+
+
+##Reference
+
+
+[1] DRAFT r-sig-mixed-models FAQ. http://glmm.wikidot.com/faq
+
+
+[2] FIPS county code - Wikipedia. https://en.wikipedia.org/wiki/FIPS_county_code
+
+
+[3] Original S code by Richard A. Becker, Allan R. Wilks.R version by Ray Brownrigg. Enhancements by Thomas P Minka and Alex Deckmyn. (2016). maps: Draw Geographical Maps. R package version 3.1.1. https://CRAN.R-project.org/package=maps
+
+
+[4] Fatality Analysis Reporting System (FARS) Analytical User’s Manual 1975-2015
+
