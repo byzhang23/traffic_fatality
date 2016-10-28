@@ -1,0 +1,192 @@
+### GLMM (county)
+library(ggplot2)
+library(lmtest)
+library(splines)
+library(lme4)
+library(knitr)
+library(lattice)
+
+source("./R_code/2-crash.R")
+source("http://peterhaschke.com/Code/multiplot.R")
+crash=readRDS("./data/proc_data/crash_county.rds")
+
+baltimore=crash[which(crash$geo_id=="24510"),]
+anne=crash[which(crash$geo_id=="24003"),]
+prince=crash[which(crash$geo_id=="24033"),]
+
+
+### exploratory analysis of anne and prince in supplementary material
+## age
+age1=ggplot(anne,aes(x=age,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(method = 'glm',formula = y~ns(x,2),method.args = list(family = poisson))+ggtitle(paste0("Exploratory analysis of fatalities against age","\nin Anne Arundel County"))+xlab("Age")+ylab("Fatality")+theme_bw()
+age2=ggplot(prince,aes(x=age,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(method = 'glm',formula = y~ns(x,2),method.args = list(family = poisson))+ggtitle(paste0("Exploratory analysis of fatalities against age","\nin Prince George's County"))+xlab("Age")+ylab("Fatality")+theme_bw()
+multiplot(age1,age2)
+
+## date
+date1=ggplot(anne,aes(x=ym,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_line(colour="red")+geom_smooth(colour="orange")+ggtitle(paste0("Exploratory analysis of trend of traffic fatalities","\nin Anne Arundel County"))+xlab("Date")+ylab("Fatality")+theme_bw()
+date2=ggplot(prince,aes(x=ym,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="orange")+geom_line(colour="red")+ggtitle(paste0("Exploratory analysis of trend of traffic fatalities","\nin Prince George's County"))+xlab("Date")+ylab("Fatality")+theme_bw()
+multiplot(date1,date2)
+
+## unemp_rate
+unemp1=ggplot(anne,aes(x=ym,y=unemp_rate))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="green")+ggtitle(paste0("Exploratory analysis of trend of unemployment rate","\nin Anne Arundel County"))+xlab("Date")+ylab("Unemployment%")+theme_bw()
+unemp2=ggplot(prince,aes(x=ym,y=unemp_rate))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="green")+ggtitle(paste0("Exploratory analysis of trend of unemployment rate","\nin Prince George's County"))+xlab("Date")+ylab("Unemployment%")+theme_bw()
+multiplot(unemp1,unemp2)
+
+## light conditons
+light1=ggplot(anne,aes(x=lgt_cond,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against light condition","\nin Anne Arundel County"))+xlab("Light condition")+ylab("Fatality")+theme_bw()
+light2=ggplot(prince,aes(x=lgt_cond,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against light condition","\nin Prince George's County"))+xlab("Light condition")+ylab("Fatality")+theme_bw()
+multiplot(light1,light2)
+
+## severe weather proportion
+weather1=ggplot(anne,aes(x=weather,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against proportion of severe weather","\nin Anne Arundel County"))+xlab("Severe weather proportion")+ylab("Fatality")+theme_bw()
+weather2=ggplot(prince,aes(x=weather,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory analysis of fatalities against proportion of severe weather","\nin Prince George's County"))+xlab("Severe weather proportion")+ylab("Fatality")+theme_bw()
+multiplot(weather1,weather2)
+
+
+### exploratory analysis of Baltimore City
+
+d1=ggplot(baltimore,aes(x=age,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(method = 'glm',formula = y~ns(x,2),method.args = list(family = poisson))+ggtitle(paste0("Exploratory plot of fatalities against age","\nin Baltimore City"))+xlab("Age")+ylab("Fatality")+theme_bw()
+d2=ggplot(baltimore,aes(x=ym,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_line(colour="red")+geom_smooth(colour="orange")+ggtitle(paste0("Trend of traffic fatalities","\nin Baltimore City"))+xlab("Date")+ylab("Fatality")+theme_bw()
+d3=ggplot(baltimore,aes(x=ym,y=unemp_rate))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="green")+ggtitle(paste0("Trend of unemployment rate","\nin Baltimore City"))+xlab("Date")+ylab("Unemployment%")+theme_bw()
+d4=ggplot(baltimore,aes(x=weather,y=fatals))+geom_jitter(alpha=0.5,position = "jitter")+geom_smooth(colour="purple")+ggtitle(paste0("Exploratory plot of fatalities against proportion of severe weather","\nin Baltimore City"))+xlab("Severe weather proportion")+ylab("Fatality")+theme_bw()
+
+multiplot(d1,d2,d3,d4,cols=2)
+
+
+#### Modeling
+### rescale variables
+crash$age_sp1=with(crash,ifelse(age>40,age-40,0))
+crash$month=as.factor(crash$month)
+crash$population=scale(crash$population)
+crash$age=scale(crash$age)
+crash$age_sp1=scale(crash$age_sp1)
+
+crash=crash[complete.cases(crash),]
+
+### training vs. test set
+set.seed(100)
+train_id =sample(1:nrow(crash),0.5*nrow(crash)) #50% training dataset
+train=crash[train_id,]
+train=train[complete.cases(train),]
+test=crash[-train_id,]
+test=test[complete.cases(test),]
+
+
+### model fitting(GLMM)
+l000=glmer(fatals~unemp_rate+(1+unemp_rate|county),data=train,family = poisson)
+l0=glmer(fatals~unemp_rate+(1|county),data=train,family = poisson)
+l00=glmer(fatals~1+(1|county),data=train,family = poisson)
+q00=anova(l000,l0)$`Pr(>Chisq)`[2] #random effect: unemp_rate
+
+
+l1=glmer(fatals~unemp_rate+lgt_cond+(1|county),data=train,family = poisson)
+q1=anova(l0,l1)$`Pr(>Chisq)`[2] #lgt_cond
+l2=glmer(fatals~unemp_rate+lgt_cond+weather+(1|county),data=train,family = poisson)
+q2=anova(l1,l2)$`Pr(>Chisq)`[2] #weather(not significant)
+l3=glmer(fatals~unemp_rate+lgt_cond+drunk_prop+(1|county),data=train,family = poisson)
+q3=anova(l1,l3)$`Pr(>Chisq)`[2] #drunk_prop(not significant)
+l4=glmer(fatals~unemp_rate+lgt_cond+ns(ym,2)+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q4=anova(l1,l4)$`Pr(>Chisq)`[2] #ns(ym,10)
+l5=glmer(fatals~unemp_rate+lgt_cond+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q5=anova(l4,l5)$`Pr(>Chisq)`[2] #age+age_sp1
+l6=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q6=anova(l5,l6)$`Pr(>Chisq)`[2] #population
+
+
+## interaction terms
+
+l7=glmer(fatals~unemp_rate*lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q7=anova(l6,l7)$`Pr(>Chisq)`[2] #unemp_rate*lgt_cond(not significant)
+l8=glmer(fatals~unemp_rate+lgt_cond*population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q8=anova(l6,l8)$`Pr(>Chisq)`[2] #population*lgt_cond(not significant)
+l9=glmer(fatals~unemp_rate+lgt_cond+population*ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q9=anova(l6,l9)$`Pr(>Chisq)`[2] #population*ns(ym,2)
+l10=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+lgt_cond:weather+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q10=anova(l6,l10)$`Pr(>Chisq)`[2] #lgt_cond * weather(not significant)
+l11=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+(age+age_sp1)*lgt_cond+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q11=anova(l6,l11)$`Pr(>Chisq)`[2] #lgt_cond * age(not significant)
+l12=glmer(fatals~unemp_rate*(age+age_sp1)+lgt_cond+population+ns(ym,2)+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
+q12=anova(l6,l12)$`Pr(>Chisq)`[2] #unemp_rate * age(not significant)
+
+
+### Model evaluation
+## fixed effects: coef/exp(coef) and its CI
+glmm.fit=glmer(fatals~unemp_rate+lgt_cond+population*ns(ym,2)+age+age_sp1+(1|county),data=test,family = poisson,control=glmerControl(optimizer="bobyqa"))
+test$fitted=predict(glmm.fit,newdata =test,type = "response")
+
+# coef
+se <- sqrt(diag(vcov(glmm.fit)))
+tab = cbind(est = fixef(glmm.fit), se,lower = fixef(glmm.fit) - 1.96 * se, upper = fixef(glmm.fit) + 1.96 * se)
+colnames(tab)=c("Estimates of coefficients","Standard Error","Lower CI","Upper CI")
+rownames(tab)=c("Intercept","unemployment rate","light condition1","light condition2","population","ns(year-month,2)1","ns(year-month,2)2","age","$(age-40)^+$")
+kable(tab, digits = 4, caption = "Summary of coefficients' estimates and its 95% confidence intervals for fixed effects")
+
+# exp(coef)
+ci_result=exp(tab)[,-2]
+colnames(ci_result)=c("Estimates of exp(coef)","Lower CI of exp(coef)","Upper CI of exp(coef)")
+rownames(ci_result)=c("Intercept","unemployment rate","light condition1","light condition2","population","ns(year-month,2)1","ns(year-month,2)2","age","$(age-40)^+$")
+kable(ci_result, digits = 4, caption = "Summary of exp(coef) and its 95% confidence intervals for fixed effects")
+
+
+## random effects
+rr=ranef(glmm.fit,condVar=TRUE)
+dotplot(rr,lattice.options=list(layout=c(1,2)))
+
+temp=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+(1+unemp_rate|county),data=test,family = poisson,control=glmerControl(optimizer="bobyqa"))
+rr_temp=ranef(temp,condVar=TRUE)
+dotplot(rr_temp,lattice.options=list(layout=c(1,2)))
+
+
+### test overdispersion
+overdisp_fun <- function(model) {
+    ## number of variance parameters in 
+    ##   an n-by-n variance-covariance matrix
+    vpars <- function(m) {
+        nrow(m)*(nrow(m)+1)/2
+    }
+    model.df <- sum(sapply(VarCorr(model),vpars))+length(fixef(model))
+    rdf <- nrow(model.frame(model))-model.df
+    rp <- residuals(model,type="pearson")
+    Pearson.chisq <- sum(rp^2)
+    prat <- Pearson.chisq/rdf
+    pval <- pchisq(Pearson.chisq, df=rdf, lower.tail=FALSE)
+    c(chisq=Pearson.chisq,ratio=prat,rdf=rdf,p=pval)
+}
+
+set.seed(123)
+overdisp_p=overdisp_fun(glmm.fit)
+
+### R^2
+r2.corr.mer <- function(m) {
+    lmfit <-  lm(model.response(model.frame(m)) ~ fitted(m))
+    summary(lmfit)$r.squared
+}
+r2=r2.corr.mer(glmm.fit)
+
+
+### draw fitted value vs. true fatality in Baltimore and Montgomery
+baltimore_crash=test[test$geo_id=="24510",]
+montgomery_crash=test[test$geo_id=="24031",]
+range=range(c(baltimore_crash$fatals,montgomery_crash$fatals))
+
+
+op=par(mfrow=c(2,1),mai=c(.6, .6, 0.5, .1),oma=c(0,0.1,1,0.1))
+plot(baltimore_crash$ym,baltimore_crash$fatals,lwd=2,col="orange",type="l",xlab="",ylab="",main=paste0("Observed value vs. Fitted values of traffic fatalities","\nin Baltimore City"),ylim=range)
+lines(baltimore_crash$ym,baltimore_crash$fitted,lwd=2,lty=2,col="blue")
+# lines(baltimore_crash$ym,baltimore_crash$lower,lwd=2,lty=3,col="lightblue")
+# lines(baltimore_crash$ym,baltimore_crash$upper,lwd=2,lty=3,col="lightblue")
+title(xlab="Date",line=1.9)
+title(ylab="Fatality",line=1.9)
+legend("topright",legend=c("observed","fitted"),lty=1:2,col=c("orange","blue"), lwd=2, horiz = TRUE,bty="n")
+
+
+
+plot(montgomery_crash$ym,montgomery_crash$fatals,lwd=2,col="orange",type="l",xlab="",ylab="",main=paste0("Observed value vs. Fitted values of traffic fatalities","\nin Montgomery County"),ylim=range)
+lines(montgomery_crash$ym,montgomery_crash$fitted,lwd=2,lty=2,col="blue")
+# lines(montgomery_crash$ym,montgomery_crash$lower,lwd=2,lty=3,col="lightblue")
+# lines(montgomery_crash$ym,montgomery_crash$upper,lwd=2,lty=3,col="lightblue")
+title(xlab="Date",line=1.9)
+title(ylab="Fatality",line=1.9)
+#title("True fatalities vs. fitted values of Baltimore City and Montgomery County",outer = T)
+legend("topright",legend=c("observed","fitted"),lty=1:2,col=c("orange","blue"), lwd=2, horiz = TRUE,bty="n")
+
+
