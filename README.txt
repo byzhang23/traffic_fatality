@@ -13,3 +13,4 @@ The Supplementary document.Rmd is the R markdown file for supplementary document
 final code.Rmd is the R markdown file for all code, including downloading data. Again, please remember to add “./data/raw_data/population/population_md_post2010.csv” before doing further analysis.
 
 
+1-exploratory.png and 2-predict.png are plots to be included in our final report.
