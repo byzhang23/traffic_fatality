@@ -194,7 +194,7 @@ q12=anova(l6,l12)$`Pr(>Chisq)`[2] #unemp_rate * age(not significant)
 ```{r message=FALSE,warning=FALSE}
 ### Model evaluation
 ## fixed effects: coef/exp(coef) and its CI
-glmm.fit=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=test,family = poisson,control=glmerControl(optimizer="bobyqa"))
+glmm.fit=glmer(fatals~unemp_rate+lgt_cond+population+ns(ym,2)+age+age_sp1+(1|county),data=train,family = poisson,control=glmerControl(optimizer="bobyqa"))
 test$fitted=predict(glmm.fit,newdata =test,type = "response")
 
 # coef
